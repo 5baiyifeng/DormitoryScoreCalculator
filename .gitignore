@@ -1,0 +1,29 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# ---- 程序运行时的临时解压目录（含受保护的 _MEI* 文件，不要提交）----
+_calc_tmp/
+_MEI*/
+*.manifest
+
+# ---- 运行日志 ----
+debug.log
+出错日志.txt
+
+# ---- Excel 临时锁文件 ----
+~$*.xlsx
+~$*.docx
+~$*.doc
+
+# ---- 打包中间产物 ----
+build/
+dist/
+*.spec
+
+# ---- 系统 ----
+Thumbs.db
+desktop.ini
+.DS_Store
