@@ -24,6 +24,8 @@
 import os
 import re
 import sys
+import stat
+import time
 import shutil
 import datetime
 import tkinter as tk
@@ -233,6 +235,25 @@ def make_copy_path(src_path):
     return candidate
 
 
+def ensure_writable(path):
+    """
+    去掉文件身上从别处带来的「只读」属性，返回是否设置成功。
+
+    为什么需要这一步：
+      1. 程序用 shutil.copy2 复制副本，它会**连文件属性一起复制**，
+         所以「原件是只读」时，生成的副本也会是只读；
+      2. 之后 openpyxl 往只读的副本里写数据，会被 Windows 直接拒绝，
+         报 "[Errno 13] Permission denied"（Windows 上是"拒绝访问"）。
+    常见的只读来源：从 U 盘 / 移动硬盘 / 共享文件夹 / 虚拟磁盘复制过来的文件，
+    或从别的电脑拷来的表。清掉只读后就能正常写入。
+    """
+    try:
+        os.chmod(path, stat.S_IWRITE)   # Windows 上只会清掉「只读」这一个属性
+        return True
+    except Exception:
+        return False
+
+
 # ---------------------------------------------------------------- 主窗口
 class ScoreApp:
     def __init__(self, root, src_path, source=SOURCE_TAG):
@@ -342,6 +363,8 @@ class ScoreApp:
         except Exception as exc:
             messagebox.showerror("复制失败", "无法创建副本：\n%s" % exc)
             return False
+        # 清掉从原件继承过来的「只读」属性，否则后面保存副本会被拒绝
+        ensure_writable(self.copy_path)
 
         try:
             self.wb = openpyxl.load_workbook(self.copy_path)
@@ -377,7 +400,24 @@ class ScoreApp:
             self.wb.save(self.copy_path)
             return True
         except Exception as exc:
-            messagebox.showerror("保存失败", "写入副本失败：\n%s" % exc)
+            first_error = exc
+
+        # 第一次写失败：可能是「只读」属性（旧版本生成的副本）、或杀毒软件
+        # 正在扫描这个新文件把它短暂锁住了。清一次只读、稍等一下再试一次。
+        ensure_writable(self.copy_path)
+        time.sleep(0.3)
+        try:
+            self.wb.save(self.copy_path)
+            return True
+        except Exception as exc:
+            messagebox.showerror(
+                "保存失败",
+                "写入副本失败：\n%s\n\n（第一次的报错：%s）\n"
+                "重试一次仍然失败，常见原因：\n"
+                "  1. 这个副本正被 Excel / WPS 打开着，关掉它再试；\n"
+                "  2. 所在文件夹没有写入权限，或被杀毒软件拦住了；\n"
+                "  3. 文件被设成了「只读」——右键 → 属性 → 取消只读。\n\n"
+                "副本位置：%s" % (exc, first_error, self.copy_path))
             return False
 
     def _show_status(self, count):
