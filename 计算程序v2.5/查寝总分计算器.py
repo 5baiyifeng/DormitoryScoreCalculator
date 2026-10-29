@@ -475,7 +475,8 @@ class ScoreApp:
                            validate="key", validatecommand=vcmd)
             ent.grid(row=r, column=c * 2 + 1, sticky="w", padx=(0, 10), pady=4)
             ent.bind("<Return>", lambda e, idx=i: self.on_item_enter(idx))
-            ent.bind("<BackSpace>", lambda e, idx=i: self.on_backspace(idx))
+            # 撤销走 Ctrl + 退格；普通退格留给输入框自己删字（v2.5 改）
+            ent.bind("<Control-BackSpace>", lambda e: self.on_undo_key())
             # 用鼠标点走时也把这一格记下来（v2.5）：不习惯按回车的人可以一路点着录
             ent.bind("<FocusOut>", lambda e, idx=i: self.on_item_focus_out(idx))
             self.entries.append((var, ent))
@@ -840,44 +841,45 @@ class ScoreApp:
         return re.fullmatch(r"\d{0,3}", proposed) is not None
 
     def _bind_undo_keys(self):
-        """把退格键绑定到主窗口，用于撤销上一格（每次录入只绑一次）。"""
+        """把「Ctrl + 退格」绑定到主窗口，用于撤销上一格（每次录入只绑一次）。"""
         if not self.undo_bound:
-            self.root.bind("<BackSpace>", self.on_backspace)
+            self.root.bind("<Control-BackSpace>", self.on_undo_key)
             self.undo_bound = True
 
-    def on_backspace(self, event=None):
-        """退格取消：把最近一次录入的扣分撤回来重填。"""
+    def on_undo_key(self, event=None):
+        """
+        Ctrl + 退格：把最近一次按回车记录的扣分撤回来重填。
+
+        为什么从普通退格改成 Ctrl + 退格（v2.5）：
+          以前普通退格同时绑在「每个扣分格」和「主窗口」两处，而输入框自身的删字符
+          是在窗口级绑定之前执行的——所以在当前格里按一下退格，字符删掉之后
+          窗口级那层又触发了一次撤销，连上一格也被撤了，改当前格特别难受。
+          现在普通退格只做「删当前格的字」，撤销统一走 Ctrl + 退格。
+        """
         if self.locked:
             # 等确认/结算状态下不撤销（此时已写入副本，避免与已保存的数据不一致）
-            return None
-        widget = getattr(event, "widget", None) if event is not None else None
-        if widget is not None and getattr(widget, "get", None) is not None:
-            try:
-                # 当前格子里有内容时，交给输入框自己删字符
-                if widget.get():
-                    return None
-            except Exception:
-                pass
+            return "break"
+        self.undo_last_item()
+        return "break"
+
+    def undo_last_item(self):
+        """撤销最近按回车记录的那一格：把值放回该格、全选，方便直接重敲。"""
         if not self.items:
-            return None
+            self.status_var.set("还没有记录任何扣分，没有可撤销的格子。")
+            return
         idx = len(self.items) - 1            # 撤销最近记录的那一格
         value = self.items.pop()
-        var, _ = self.entries[idx]
+        var = self.entries[idx][0]
         ent = self.entries[idx][1]
         if value == 0:
             var.set("")                      # 那个 0 是“结束标志”，撤掉后不留内容
         else:
             var.set(str(value))              # 把原来的数字放回去，方便确认后修改
-        self.entries[idx][1].configure(state="normal")
+        ent.configure(state="normal")
         ent.focus_set()
         ent.select_range(0, "end")           # 全选，直接重敲即可覆盖
-        if self.items:
-            self.status_var.set("已撤销第 %d 格（原值 %s），可以重新填写，"
-                                "再按回车继续。" % (idx + 1, value))
-        else:
-            self.status_var.set("已撤销第 1 格（原值 %s），可以重新填写，"
-                                "再按回车继续。" % value)
-        return "break"
+        self.status_var.set("已撤销第 %d 格（原值 %s），可以重新填写，再按回车继续。"
+                            % (idx + 1, value))
 
     def on_item_enter(self, idx):
         """在第 idx 个扣分框按回车：记录这一格的数字，然后跳到下一格。
@@ -978,7 +980,7 @@ class ScoreApp:
         self.last_committed_row = None      # 本轮已写入，不再允许撤销
         if self.undo_bound:
             try:
-                self.root.unbind("<BackSpace>")
+                self.root.unbind("<Control-BackSpace>")
             except Exception:
                 pass
             self.undo_bound = False
@@ -1336,8 +1338,8 @@ def main():
 
         # 5) 显示主界面并抬到最前（此时窗口和界面都还没建，不会白闪）
         root.deiconify()
-        # 窗口空白处按退格也能撤销上一格（与扣分框里的退格等效）
-        root.bind("<BackSpace>", application.on_backspace)
+        # 窗口空白处按 Ctrl + 退格也能撤销上一格（与扣分框里的等效）
+        root.bind("<Control-BackSpace>", application.on_undo_key)
         root.lift()
         root.focus_force()
         try:
