@@ -823,12 +823,19 @@ class ScoreApp:
 
     def _validate_item(self, proposed, previous, inserted, idx, var_key):
         """扣分框只允许敲入 0~999 的整数；第 1 格还允许 w / s（无人 / 锁）。"""
+        # 注意：这个函数是 Tk 通过 validatecommand 调用的，所有参数都是**字符串**，
+        # 第 1 格传进来的 idx 是 "0" 而不是 0。必须先转成整数再比较，
+        # 否则 w / s 会被当成“非数字”拦掉（v2.5 修过一次）。
+        try:
+            cell = int(idx)
+        except (TypeError, ValueError):
+            cell = -1
         if self.locked:
             # 结算/等待确认期间：只允许清空（换寝室时清空），不接受新输入
             return proposed == ""
         if proposed == "":
             return True
-        if idx == 0 and proposed.lower() in (MARK_NONE_KEY, MARK_LOCK_KEY):
+        if cell == 0 and proposed.lower() in (MARK_NONE_KEY, MARK_LOCK_KEY):
             return True
         return re.fullmatch(r"\d{0,3}", proposed) is not None
 
